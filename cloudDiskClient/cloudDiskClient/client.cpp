@@ -13,7 +13,7 @@ using namespace std;
 vector<pair<string, string>> dirFileinfo;//同步盘的目录文件信息，路径+md5码
 MD5 md5;
 
-void send_file(SOCKET sockfd,string filepath,string filename)
+void send_file(SOCKET sockfd,string filepath,string filename, string username)
 {
     FILE* fp = fopen(filepath.c_str(), "rb");
     struct stat fileInfo;
@@ -30,11 +30,18 @@ void send_file(SOCKET sockfd,string filepath,string filename)
     fileheader = filename + "\n";
     fileheader += to_string(readbyte) +"\n";
     fileheader += md5.toString() + "\n";
+    fileheader += username + "\n";
+    fileheader += filepath + "\n";
     send(sockfd, fileheader.c_str(), fileheader.length(), 0);
     char res[5];
     memset(res, 0, sizeof(res));
     recv(sockfd, res, 1, 0);
     cout << res << endl;
+    if (res[0] == '0')//文件已经存在，传下一个文件
+        return;
+
+
+
     send(sockfd, fileDate, readbyte,0);
 
     memset(res, 0, sizeof(res));
@@ -84,7 +91,7 @@ void listFiles(const char* dir)
 
             // 在目录后面加上"\\"和搜索到的目录名进行下一次搜索
             strcpy(dirNew, dir);
-            strcat(dirNew, "\\");
+            strcat(dirNew, "\\\\");
             strcat(dirNew, findData.name);
 
             listFiles(dirNew);
@@ -92,7 +99,7 @@ void listFiles(const char* dir)
         else
         {
             char fileInfo[200];
-            sprintf(fileInfo, "%s\\%s", dir, findData.name);
+            sprintf(fileInfo, "%s\\\\%s", dir, findData.name);
             dirFileinfo.push_back(make_pair(fileInfo, findData.name));
 
         }
@@ -143,7 +150,7 @@ int main(int argc, char** argv)
     {  //连接失败 
         printf("connect error !\n");
         closesocket(sockfd);
-        //return 0;
+        return 0;
     }
 
 
@@ -168,7 +175,7 @@ int main(int argc, char** argv)
             cout << "<command说明>" << endl;
             cout << "<用户注册：register+用户名+密码 示例：register jachin tongji6666>" << endl;
             cout << "<用户登录：login+用户名+密码 示例：login jachin tongji6666>" << endl;
-            cout << "<目录绑定：bind+本机目录+网盘目录 示例：bind C:\\Users\\67093\\Desktop\\test dir1>" << endl;
+            cout << "<目录绑定：bind+本机目录+网盘目录 示例：bind C:\\\\Users\\\\67093\\\\Desktop\\\\test home>" << endl;
             cout << "<使用帮助：man 示例：man>" << endl;
         }
         else if (args[0] == "register")
@@ -208,6 +215,7 @@ int main(int argc, char** argv)
         }
         else if (args[0] == "bind")
         {
+            dirFileinfo.clear();
             if (strcmp(username,"")==0)
             {
                 cout << "用户未登录！请先登录" << endl;
@@ -225,7 +233,7 @@ int main(int argc, char** argv)
                 for (int i = 0; i < dirFileinfo.size(); ++i)
                 {
                     cout << "正在同步第" << i + 1 << "个文件" << endl;
-                    send_file(sockfd, dirFileinfo[i].first, dirFileinfo[i].second);
+                    send_file(sockfd, dirFileinfo[i].first, dirFileinfo[i].second,username);
                 }
                 send(sockfd, "end", 3, 0);
             }

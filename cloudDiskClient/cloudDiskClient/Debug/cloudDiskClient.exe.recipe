@@ -2,12 +2,12 @@
 <Project>
   <ProjectOutputs>
     <ProjectOutput>
-      <FullPath>D:\VS PROJECTS\cloudDiskClient\Debug\cloudDiskClient.exe</FullPath>
+      <FullPath>C:\Users\67093\Desktop\cloudDisk\cloudDiskClient\Debug\cloudDiskClient.exe</FullPath>
     </ProjectOutput>
   </ProjectOutputs>
   <ContentFiles>
     <ContentFile>
-      <FullPath>D:\VS PROJECTS\cloudDiskClient\cloudDiskClient\f.txt</FullPath>
+      <FullPath>C:\Users\67093\Desktop\cloudDisk\cloudDiskClient\cloudDiskClient\f.txt</FullPath>
     </ContentFile>
   </ContentFiles>
   <SatelliteDlls />

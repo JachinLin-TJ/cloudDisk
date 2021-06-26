@@ -17,6 +17,9 @@ using namespace std;
 MYSQL *mysql;
 MYSQL_RES *result; 
 MYSQL_ROW  row;
+vector<string> args;
+char  buff[4096];
+
 void connect_mysql()//数据库连接
 {
 	mysql = mysql_init( NULL );	/* 连接初始化 */
@@ -39,7 +42,7 @@ void connect_mysql()//数据库连接
 
 }
 //注册账户，数据库中插入账户密码，若成功返回1
-bool reg(vector<string>& args)
+bool reg()
 {
     char sqlcmd[100];
     sprintf(sqlcmd, "insert into user values(\"%s\",\"%s\")", args[1].c_str(),args[2].c_str());
@@ -51,7 +54,7 @@ bool reg(vector<string>& args)
     return 1;
 }
 //登录账户，校验密码，密码符合返回1
-bool login(vector<string>& args)
+bool login()
 {
     char sqlcmd[100];
     sprintf(sqlcmd, "select * from user where username=\'%s\'", args[1].c_str());
@@ -91,7 +94,7 @@ void SplitString(const std::string& s, std::vector<std::string>& v, const std::s
     v.push_back(s.substr(pos1));
 }
 //处理参数
-void cmdArgs(const string& cmd, vector<string>& args) {
+void cmdArgs(const string& cmd) {
     args.clear();
     string str;
     unsigned int p, q;
@@ -105,8 +108,102 @@ void cmdArgs(const string& cmd, vector<string>& args) {
             return;
     }
 }
+bool md5_exist(string md5)
+{
+    char sqlcmd[100];
+    sprintf(sqlcmd, "select * from file where md5=\'%s\'",md5.c_str());
+    if (mysql_query(mysql, sqlcmd)) {
+    	cout << "mysql_query failed(" << mysql_error(mysql) << ")" << endl;
+    	return -1;
+    }
+    
+    if ((result = mysql_store_result(mysql))==NULL) {
+    	cout << "mysql_store_result failed" << endl;
+    	return -1;
+    }
+    if((int)mysql_num_rows(result)==0)//该文件不存在
+        return 0;
+    return 1;//文件存在
+}
+bool insert_file(string md5,string filename,string cite,string md5dir ,string md5name)
+{
+    char sqlcmd[200];
+    sprintf(sqlcmd, "insert into file values(\"%s\",\"%s\",%s,\"%s\",\"%s\")",md5.c_str(),filename.c_str(),cite.c_str(),md5dir.c_str(),md5name.c_str());
+    // cout<<sqlcmd<<endl;
+
+    if (mysql_query(mysql, sqlcmd)) {
+    	// cout << "mysql_query failed(" << mysql_error(mysql) << ")" << endl;
+    	return 0;
+    }
+    return 1;
+}
+
+bool insert_path(string md5,string type,string username,string clientpath)
+{
+    char sqlcmd[200];
+    string path=username+"\\\\"+args[2]+"\\\\"+clientpath.substr(args[1].length()+1);
+
+    // cout<<clientpath<<endl;
+    sprintf(sqlcmd, "insert into path values(\"%s\",%s,\"%s\",\"%s\")",path.c_str(),type.c_str(),md5.c_str(),clientpath.c_str());
+    // cout<<sqlcmd<<endl;
+    if (mysql_query(mysql, sqlcmd)) {
+    	// cout << "mysql_query failed(" << mysql_error(mysql) << ")" << endl;
+    	return 0;
+    }
+    return 1;
+
+}
+void client_to_server(int connfd)
+{
+    while(1)
+    {
+        string fileheader;
+        vector<string> fileinfo;
+        int filesize;
+
+        memset(buff,0,sizeof(buff));
+        int n=read(connfd,buff,200);//接收文件头信息
+        fileheader=buff;
+        if(fileheader=="end")//如果接收到end，则说明所有文件已经同步完毕
+            break;
+        SplitString(fileheader,fileinfo,"\n");//0为文件名，1为文件大小，2为MD5码,3为用户名,4为客户端上目录
+        insert_path(fileinfo[2],"0",fileinfo[3],fileinfo[4]);//插入路径表
+        if(insert_file(fileinfo[2],fileinfo[0],"0",fileinfo[2].substr(0,4),fileinfo[2].substr(4,28))==0)
+        {
+            write(connfd,"0",1);//回复客户端，该文件已经存在，传下一个
+            continue;
+        }
+        
+        
+        write(connfd,"1",1);//回复客户端，该文件不存在，准备接收
+        filesize=atoi(fileinfo[1].c_str());
+        char* filedata=(char*)malloc(sizeof(char) * filesize);
+        int leftsize=filesize;
+        int readsize=0;
+        
+        while(1)
+        {
+            n=read(connfd,filedata+readsize,leftsize);//接收文件
+            readsize+=n;
+            leftsize-=n;
+            if(leftsize==0)
+                break;
+        }
+
+        string dir="mkdir -p data/"+fileinfo[2].substr(0,4);
+        system(dir.c_str());
+        string clouDir="data/"+fileinfo[2].substr(0,4)+"/"+fileinfo[2].substr(5,28);
+        FILE* fp = fopen(clouDir.c_str(),"wb");
+        fwrite(filedata,1,filesize,fp);
+        fclose(fp);
+        free(filedata);
+        write(connfd,"1",1);//回复客户端，准备好接收下个文件
+
+    }    
 
 
+
+}
 int main(int argc, char** argv){
     int sockfd,connfd;
     sockaddr_in servaddr;
@@ -168,8 +265,7 @@ int main(int argc, char** argv){
     
     printf("======connect success======\n");
 
-    vector<string> args;
-    char  buff[4096];
+    
     //监听客户端的动作
     while(1)
     {
@@ -177,20 +273,21 @@ int main(int argc, char** argv){
         int n=read(connfd,buff,100);
         if(n<=0)
             break;
-        cmdArgs(buff, args);
-
+        cmdArgs(buff);
+        //注册
         if(args[0]=="register")
         {
-            if(reg(args))
+            if(reg())
             {
                 write(connfd,"1",1);
             }
             else
                 write(connfd,"0",1);
         }
+        //登录
         else if(args[0]=="login")
         {
-            if(login(args))
+            if(login())
             {
                 write(connfd,"1",1);
             }
@@ -198,52 +295,13 @@ int main(int argc, char** argv){
                 write(connfd,"0",1);
             
         }
+        //bind初始化
         else if(args[0]=="bind")
         {
-            //不断接收文件，直到客户端发来end
-            while(1)
-            {
-                string fileheader;
-                vector<string> fileinfo;
-                int filesize;
+            //客户端同步到服务端
+            client_to_server(connfd);
+            //服务端同步到客户端
 
-                memset(buff,0,sizeof(buff));
-                int n=read(connfd,buff,200);//接收文件头信息
-                fileheader=buff;
-                cout<<fileheader<<endl;
-                if(fileheader=="end")
-                    break;
-                SplitString(fileheader,fileinfo,"\n");//0为文件名，1为文件大小，2为MD5码
-                filesize=atoi(fileinfo[1].c_str());
-                write(connfd,"1",1);//回复客户端，准备好接收文件
-
-                char* filedata=(char*)malloc(sizeof(char) * filesize);
-                int leftsize=filesize;
-                int readsize=0;
-                
-                while(1)
-                {
-                    n=read(connfd,filedata+readsize,leftsize);//接收文件
-                    readsize+=n;
-                    leftsize-=n;
-                    if(leftsize==0)
-                        break;
-                }
-
-
-
-                string clouDir=args[2]+"/"+fileinfo[0];
-
-                FILE* fp = fopen(clouDir.c_str(),"wb");
-                fwrite(filedata,1,filesize,fp);
-                fclose(fp);
-                free(filedata);
-
-                
-                
-                write(connfd,"1",1);//回复客户端，准备好接收下个文件
-
-            }
         }
 
     }
